@@ -3,6 +3,8 @@ import org.apache.spark.sql.functions._
 import java.nio.file.{Files, Paths, StandardCopyOption}
 import org.apache.spark.sql.Column
 
+import org.apache.spark.sql.types._
+
 // DataCleaner class definition
 class DataCleaner(spark: SparkSession) {
 
@@ -59,63 +61,115 @@ class DataCleaner(spark: SparkSession) {
   }
 }
 
+
 object App {
+    def dataCleanerExample(spark: SparkSession) = {
+      // Instantiate DataCleaner
+      val dataCleaner = new DataCleaner(spark)
+
+      // Download the dataset
+      val url = "https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data"
+      val localFilename = "adult.csv"
+      dataCleaner.downloadFile(url, localFilename)
+
+      // Load data
+      val df = dataCleaner.loadData(localFilename)
+
+      // Set column names
+      val columns = Seq("age", "workclass", "fnlwgt", "education", "education_num", "marital_status", "occupation", "relationship", "race", "sex", "capital_gain", "capital_loss", "hours_per_week", "native_country", "income")
+      val dfWithHeaders = dataCleaner.setColumnNames(df, columns)
+
+      // Clean data
+      val cleanedDF = dataCleaner.cleanData(dfWithHeaders)
+
+      // Filter out invalid data (e.g., remove rows with negative values in "capital_gain")
+      val validDataDF = dataCleaner.filterInvalidData(cleanedDF, "capital_gain", _ >= 0)
+
+      // Show the cleaned data
+      validDataDF.show(10)
+    }
+
+    def exercise1(spark: SparkSession) = {
+      // Define the schema structure
+      val customSchema = new StructType(
+        Array(
+            StructField("order_id", LongType, nullable = false),
+            StructField("customer_id", LongType, nullable = true),
+            StructField("country", StringType, nullable = true),
+            StructField("product", StringType, nullable = true),
+            StructField("category", StringType, nullable = true),
+            StructField("unit_price", DoubleType, nullable = true),
+            StructField("quantity", IntegerType, nullable = true),
+            StructField("order_timestamp", StringType, nullable = true) 
+        )
+    )
+    // Load the CSV
+    val df = spark.read
+      .format("csv")
+      .option("header", "true")
+      .option("inferSchema", "false")
+      .schema(customSchema)
+      .load("data/online_retail.csv")
+
+    // Clean
+    val dfCleaned = df.filter(
+        col("customer_id").isNotNull &&
+        col("quantity") > 0 &&
+        col("unit_price") > 0
+    )
+
+    // Questions
+    val dfWithTotalPrice = dfCleaned.withColumn(
+        "total_amount", 
+        col("quantity")*col("unit_price")
+    )
+
+    val dfSalesByCountry = dfWithTotalPrice
+      .groupBy(col("country"))
+      .agg(
+        sum("total_amount").alias("total_sales_amount"),
+        count("country").alias("num_of_countries"),
+        round(avg("total_amount"), 2).alias("total_avg_amount")
+      )
+      .orderBy(col("total_avg_amount").desc)
+
+    val dfTop5Products = dfWithTotalPrice
+      .groupBy(col("product"))
+      .agg(sum("quantity").alias("total_quantity_sold"))
+      .orderBy(col("total_quantity_sold").desc)
+      .limit(5)
+    
+    var dfPerCategory = dfWithTotalPrice
+      .groupBy(col("category"))
+      .agg(
+        sum("quantity").alias("total_quantity_sold"),
+        round(sum("total_amount"), 2).alias("total_revenue"),
+        round(avg("unit_price"), 2).alias("avg_unit_price")
+      )
+      .orderBy(col("total_revenue"))
+      
+    dfWithTotalPrice.show(false)
+    dfSalesByCountry.show(false)
+    dfTop5Products.show(false)
+    dfPerCategory.show(false)
+  }
+
+  def exercise2(spark: SparkSession) = {
+    // TODO: 
+  }
+
+
   def main(args: Array[String]): Unit = {
-    // val spark = SparkSession.builder()
-    //   .appName("Codespaces Spark Hello")
-    //   .master("local[*]")
-    //   .config("spark.ui.showConsoleProgress", "false")
-    //   .getOrCreate()
 
-    // spark.sparkContext.setLogLevel("WARN")
-
-    // import spark.implicits._
-
-    // val df = Seq(
-    //   ("Alice", 34),
-    //   ("Bob", 28),
-    //   ("Carol", 41)
-    // ).toDF("name", "age")
-
-    // df.show()
-
-    // // Keep job alive briefly so you can view the Spark UI on port 4040
-    // println("Open the Spark UI on port 4040 (Ports panel). Sleeping 10s...")
-    // Thread.sleep(10000)
-
-    // spark.stop()
-
-    // Usage of DataCleaner class
     val spark = SparkSession.builder
       .appName("DataCleaningExample")
       .master("local[*]") // Modify for cluster
       .getOrCreate()
 
-    // Instantiate DataCleaner
-    val dataCleaner = new DataCleaner(spark)
+  
+    exercise1(spark)
 
-    // Download the dataset
-    val url = "https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data"
-    val localFilename = "adult.csv"
-    dataCleaner.downloadFile(url, localFilename)
-
-    // Load data
-    val df = dataCleaner.loadData(localFilename)
-
-    // Set column names
-    val columns = Seq("age", "workclass", "fnlwgt", "education", "education_num", "marital_status", "occupation", "relationship", "race", "sex", "capital_gain", "capital_loss", "hours_per_week", "native_country", "income")
-    val dfWithHeaders = dataCleaner.setColumnNames(df, columns)
-
-    // Clean data
-    val cleanedDF = dataCleaner.cleanData(dfWithHeaders)
-
-    // Filter out invalid data (e.g., remove rows with negative values in "capital_gain")
-    val validDataDF = dataCleaner.filterInvalidData(cleanedDF, "capital_gain", _ >= 0)
-
-    // Show the cleaned data
-    validDataDF.show(10)
-
-
+    // Run: sbt clean run
     // Stop Spark session
     spark.stop()
   }
