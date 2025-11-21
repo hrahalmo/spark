@@ -156,6 +156,52 @@ object App {
 
   def exercise2(spark: SparkSession) = {
     // TODO: 
+      val dfCustomers = spark.read
+        .format("csv")
+        .option("header", true)
+        .option("inferSchema", true)
+        .load("data/customers.csv")
+
+      val dfOrders = spark.read
+        .format("csv")
+        .option("header", true)
+        .option("inferSchema", true)
+        .load("data/orders.csv")
+
+      // df1.join(df2, joinCondition, "inner")
+      val joinCondition = dfCustomers("customer_id") === dfOrders("customer_id")
+      val dfJoin = dfCustomers.join(dfOrders, joinCondition, "inner")
+      import spark.implicits._
+      // Using import spark.implicits._ allows us to use $("column_name") syntax instead of col("column_name")
+      dfJoin.select(
+        dfCustomers("customer_id"), //we need to use the data-frame to avoid ambiguity since both tables have the same column name
+        $"name",
+        $"email",
+        $"country",
+        $"signup_date",
+        $"order_id",
+        $"order_timestamp",
+        $"order_total"
+      ).show(false)
+
+      val dfTotalSpentPerCustomer = dfOrders
+        .groupBy($"customer_id")
+        .agg(
+          sum($"order_total").alias("customer_total_spent")
+      )
+
+      val dfFinal = dfCustomers.join(
+        dfTotalSpentPerCustomer,
+        Seq("customer_id"), // joins by customer_id and removes one of the columns
+        "inner"
+      )
+
+      dfFinal.select(
+        $"customer_id", // customer_id is not ambiguos since have only 1
+        $"name",
+        $"customer_total_spent"
+      ).show(false)
+  
   }
 
 
@@ -167,7 +213,7 @@ object App {
       .getOrCreate()
 
   
-    exercise1(spark)
+    exercise2(spark)
 
     // Run: sbt clean run
     // Stop Spark session
